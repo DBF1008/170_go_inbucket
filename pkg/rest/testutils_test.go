@@ -52,6 +52,10 @@ func testRestPatch(url string, body string) (*httptest.ResponseRecorder, error) 
 }
 
 func setupWebServer(mm message.Manager) *bytes.Buffer {
+	return setupWebServerWithBasePath(mm, "")
+}
+
+func setupWebServerWithBasePath(mm message.Manager, basePath string) *bytes.Buffer {
 	// Capture log output
 	buf := new(bytes.Buffer)
 	log.SetOutput(buf)
@@ -59,13 +63,34 @@ func setupWebServer(mm message.Manager) *bytes.Buffer {
 	// Have to reset default mux to prevent duplicate routes
 	cfg := &config.Root{
 		Web: config.Web{
-			UIDir: "../ui",
+			UIDir:    "../ui",
+			BasePath: basePath,
 		},
 	}
 	SetupRoutes(web.Router.PathPrefix("/api/").Subrouter())
 	web.NewServer(cfg, mm, &msghub.Hub{})
 
 	return buf
+}
+
+func testRestGetWithHeaders(url string, headers map[string]string) (*httptest.ResponseRecorder, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Accept", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	// Pass request to handlers directly.
+	w := httptest.NewRecorder()
+	web.Router.ServeHTTP(w, req)
+
+	return w, nil
 }
 
 func decodedBoolEquals(t *testing.T, json interface{}, path string, want bool) {

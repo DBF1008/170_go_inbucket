@@ -1,14 +1,12 @@
 package rest
 
 import (
-	"fmt"
-	"io"
-	"net/http"
-
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	"strconv"
+	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/inbucket/inbucket/v3/pkg/rest/model"
 	"github.com/inbucket/inbucket/v3/pkg/server/web"
@@ -65,9 +63,7 @@ func MailboxShowV1(w http.ResponseWriter, req *http.Request, ctx *web.Context) (
 	attachments := make([]*model.JSONMessageAttachmentV1, len(attachParts))
 	for i, part := range attachParts {
 		content := part.Content
-		// Example URL: http://localhost/serve/mailbox/swaks/0001/attach/0/favicon.png
-		link := "http://" + req.Host + "/serve/mailbox/" + name + "/" + id + "/attach/" +
-			strconv.Itoa(i) + "/" + part.FileName
+		link := web.AttachmentURL(req, ctx.RootConfig.Web.BasePath, name, id, i, part.FileName)
 		checksum := md5.Sum(content)
 		attachments[i] = &model.JSONMessageAttachmentV1{
 			ContentType:  part.ContentType,

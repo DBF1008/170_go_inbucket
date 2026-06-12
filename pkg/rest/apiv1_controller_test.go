@@ -305,3 +305,114 @@ func TestRestMarkSeen(t *testing.T) {
 		_, _ = io.Copy(os.Stderr, logbuf)
 	}
 }
+
+// setupMessageWithAttachment creates a test message that has two attachments so
+// we can verify link generation end-to-end through the REST handler.
+func setupMessageWithAttachment() *message.Message {
+	tzPST := time.FixedZone("PST", -8*3600)
+	return message.New(
+		event.MessageMetadata{
+			Mailbox: "good",
+			ID:      "0001",
+			From:    &mail.Address{Name: "", Address: "from1@host"},
+			To:      []*mail.Address{{Name: "", Address: "to1@host"}},
+			Subject: "subject 1",
+			Date:    time.Date(2012, 2, 1, 10, 11, 12, 253, tzPST),
+			Seen:    true,
+		},
+		&enmime.Envelope{
+			Text: "text",
+			HTML: "html",
+			Root: &enmime.Part{
+				Header: textproto.MIMEHeader{
+					"To":   []string{"to@host"},
+					"From": []string{"from@host"},
+				},
+			},
+			Attachments: []*enmime.Part{{
+				FileName:    "favicon.png",
+				ContentType: "image/png",
+			}},
+			Inlines: []*enmime.Part{{
+				FileName:    "statement.pdf",
+				ContentType: "application/pdf",
+			}},
+		},
+	)
+}
+
+func TestRestMessageAttachmentLinksDirectHTTP(t *testing.T) {
+	// Direct HTTP, no base path - equivalent to the original scenario.
+	mm := test.NewManager()
+	logbuf := setupWebServer(mm)
+	mm.AddMessage("good", setupMessageWithAttachment())
+
+	w, err := testRestGet("http://localhost/api/v1/mailbox/good/0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 {
+		t.Fatalf("Expected code 200, got %v", w.Code)
+	}
+
+	dec := json.NewDecoder(w.Body)
+	var result map[string]interface{}
+	if err := dec.Decode(&result); err != nil {
+		t.Fatalf("Failed to decode JSON: %v", err)
+	}
+
+	decodedStringEquals(t, result, "attachments/[0]/download-link",
+		"http://localhost/serve/mailbox/good/0001/attach/0/statement.pdf")
+	decodedStringEquals(t, result, "attachments/[0]/view-link",
+		"http://localhost/serve/mailbox/good/0001/attach/0/statement.pdf")
+	decodedStringEquals(t, result, "attachments/[1]/download-link",
+		"http://localhost/serve/mailbox/good/0001/attach/1/favicon.png")
+	decodedStringEquals(t, result, "attachments/[1]/view-link",
+		"http://localhost/serve/mailbox/good/0001/attach/1/favicon.png")
+
+	if t.Failed() {
+		time.Sleep(2 * time.Second)
+		_, _ = io.Copy(os.Stderr, logbuf)
+	}
+}
+
+func TestRestMessageAttachmentLinksHTTPSProxyWithBasePath(t *testing.T) {
+	// HTTPS-terminating reverse proxy with a sub-path base.
+	mm := test.NewManager()
+	logbuf := setupWebServerWithBasePath(mm, "/inbucket")
+	mm.AddMessage("good", setupMessageWithAttachment())
+
+	headers := map[string]string{
+		"X-Forwarded-Proto": "https",
+		"X-Forwarded-Host":  "mail.example.com",
+	}
+	w, err := testRestGetWithHeaders("http://internal:9000/api/v1/mailbox/good/0001", headers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 {
+		t.Fatalf("Expected code 200, got %v", w.Code)
+	}
+
+	dec := json.NewDecoder(w.Body)
+	var result map[string]interface{}
+	if err := dec.Decode(&result); err != nil {
+		t.Fatalf("Failed to decode JSON: %v", err)
+	}
+
+	// Links must use https scheme, the external host from X-Forwarded-Host,
+	// and the configured base path prefix.
+	decodedStringEquals(t, result, "attachments/[0]/download-link",
+		"https://mail.example.com/inbucket/serve/mailbox/good/0001/attach/0/statement.pdf")
+	decodedStringEquals(t, result, "attachments/[0]/view-link",
+		"https://mail.example.com/inbucket/serve/mailbox/good/0001/attach/0/statement.pdf")
+	decodedStringEquals(t, result, "attachments/[1]/download-link",
+		"https://mail.example.com/inbucket/serve/mailbox/good/0001/attach/1/favicon.png")
+	decodedStringEquals(t, result, "attachments/[1]/view-link",
+		"https://mail.example.com/inbucket/serve/mailbox/good/0001/attach/1/favicon.png")
+
+	if t.Failed() {
+		time.Sleep(2 * time.Second)
+		_, _ = io.Copy(os.Stderr, logbuf)
+	}
+}
