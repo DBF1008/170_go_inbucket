@@ -1,0 +1,13 @@
+.dockerignore
+.goxc.json
+.goxc.local.json
+.travis.yml
+inbucket
+inbucket.exe
+swaks-tests
+target
+tags
+tags.*
+ui/dist
+ui/elm-stuff
+ui/node_modules

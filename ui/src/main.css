@@ -1,0 +1,441 @@
+/** GLOBAL */
+
+:root {
+  --bg-color: #fff;
+  --primary-color: #333;
+  --low-color: #666;
+  --disabled-color: #ddd;
+  --high-color: #337ab7;
+  --border-color: #ddd;
+  --placeholder-color: #9f9f9f;
+  --selected-color: #eee;
+  --focused-color: #fff;
+  --focused-bg-color: #337ab7;
+
+  --input-bg: white;
+  --input-bg-active: white;
+
+  --btn-default-bg-color: #337ab7;
+  --btn-default-bg-image: linear-gradient(to bottom, #337ab7 0, #265a88 100%);
+  --btn-default-color: #ffffff;
+  --btn-danger-bg-color: #d9534f;
+  --btn-danger-bg-image: linear-gradient(to bottom, #d9534f 0, #c12e2a 100%);
+  --btn-light-bg-color: #eee;
+  --btn-light-bg-image: linear-gradient(to bottom, #f0f0f0 0, #e0e0e0 100%);
+
+  --monitor-header-bg: #e8e8e8;
+
+  --well-bg-color: #f5f5f5;
+  --well-bg-image: linear-gradient(to bottom, #e8e8e8 0, #f5f5f5 100%);
+
+  --well-warn-bg-color: #fff8cf;
+  --well-warn-bg-image: linear-gradient(to bottom, #fff899 0, #fff8cf 100%);
+  --well-warn-color: inherit;
+
+  --well-error-bg-color: #f58080;
+  --well-error-bg-image: linear-gradient(to bottom, #e86060 0, #f58080 100%);
+  --well-error-color: inherit;
+
+  --well-border: #e8e8e8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #202124;
+    --primary-color: #bdc1c6;
+    --high-color: #8ab4f8;
+    --border-color: #5f6368;
+    --selected-color: #303134;
+
+    --input-bg: var(--bg-color);
+    --input-bg-active: rgb(48, 49, 52);
+
+    --btn-default-bg-color: #303134;
+    --btn-default-bg-image: none;
+    --btn-default-color: #e8eaed;
+    /*--btn-danger-bg-color: #d9534f;*/
+    --btn-danger-bg-image: none;
+    /*--btn-light-bg-color: #eee;*/
+    --btn-light-bg-image: none;
+
+    --monitor-header-bg: var(--selected-color);
+
+    --well-bg-color: var(--low-color);
+    --well-bg-image: none;
+
+    --well-warn-bg-color: #c3c099;
+    --well-warn-bg-image: none;
+    --well-warn-color: var(--bg-color);
+
+    --well-error-bg-color: #e86060;
+    --well-error-bg-image: none;
+    --well-error-color: var(--bg-color);
+
+    --well-border: var(--border-color);
+  }
+}
+
+html, body, div, span, applet, object, iframe,
+h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+a, abbr, acronym, address, big, cite, code,
+del, dfn, em, img, ins, kbd, q, s, samp,
+small, strike, strong, sub, sup, tt, var,
+b, u, i, center, button,
+dl, dt, dd, ol, ul, li,
+fieldset, form, label, legend,
+table, caption, tbody, tfoot, thead, tr, th, td,
+article, aside, canvas, details, embed,
+figure, figcaption, footer, header, hgroup,
+menu, nav, output, ruby, section, summary,
+time, mark, audio, video {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 100%;
+  vertical-align: baseline;
+}
+
+::placeholder {
+  color: var(--placeholder-color);
+  opacity: 1;
+}
+
+a {
+    color: var(--high-color);
+    text-decoration: none;
+}
+
+body {
+  background-color: var(--bg-color);
+}
+
+body, button, input, table {
+  font-family: "Open Sans", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.43;
+  color: var(--primary-color);
+}
+
+button {
+  background: none;
+  cursor: pointer;
+}
+
+h1, h2, h3, h4, h5, h6, p {
+  margin-bottom: 10px;
+}
+
+/** SHARED */
+
+a.button {
+  background-color: var(--btn-default-bg-color);
+  background-image: var(--btn-default-bg-image);
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  display: inline-block;
+  font-size: 11px;
+  font-style: normal;
+  margin: 4px;
+  padding: 3px 8px 4px;
+  text-decoration: none;
+  text-shadow: 0 -1px 0 rgba(0,0,0,0.2);
+}
+
+.well {
+  background-color: var(--well-bg-color);
+  background-image: var(--well-bg-image);
+  border: 1px solid var(--well-border);
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  padding: 6px 10px;
+  margin: 20px 0;
+}
+
+.well a:hover {
+  text-decoration: underline;
+}
+
+.well-error {
+  background-color: var(--well-error-bg-color);
+  background-image: var(--well-error-bg-image);
+  color: var(--well-error-color);
+}
+
+.well-error a {
+  color: #a00000;
+  font-weight: bold;
+}
+
+.well-warn {
+  background-color: var(--well-warn-bg-color);
+  background-image: var(--well-warn-bg-image);
+  color: var(--well-warn-color);
+}
+
+input {
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  input:focus-visible, input:hover {
+    outline: none;
+    border: 1px solid var(--input-bg-active);
+    background-color: var(--input-bg-active);
+  }
+}
+
+/** APP */
+
+.app {
+  display: grid;
+  justify-content: center;
+  grid-gap: 20px;
+  grid-template:
+    "head head head" auto
+    "lpad page rpad" 1fr
+    "foot foot foot" auto / 1px 1fr 1px;
+  height: auto;
+}
+
+.desktop {
+  display: none;
+}
+
+@media screen and (min-width: 1000px) {
+  .app {
+    grid-column-gap: 40px;
+    grid-template:
+      "lpad head rpad" auto
+      "lpad page rpad" 1fr
+      "foot foot foot" auto
+      / 1fr minmax(auto, 1300px) 1fr;
+    height: 100vh;
+  }
+
+  td.desktop, th.desktop {
+    display: table-cell;
+  }
+}
+
+header {
+  grid-area: head;
+}
+
+.page {
+  grid-area: page;
+  /* Explicit minimums required for sizing/scrolling in nested flex+grids. */
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+footer {
+  background-color: var(--selected-color);
+  display: flex;
+  justify-content: center;
+  grid-area: foot;
+}
+
+.footer {
+  margin: 10px auto;
+}
+
+h1 {
+  font-size: 30px;
+  font-weight: 500;
+}
+
+h2 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+h3 {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.flash-header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.flash-table {
+  border-left: 4px solid rgba(0,0,0,0.2);
+  overflow: auto;
+  padding-bottom: 4px;
+  padding-left: 4px;
+}
+
+.flash-table th {
+  padding-right: 5px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.greeting {
+  max-width: 1000px;
+}
+
+.modal-mask {
+  background-color: rgba(0,0,0,0.4);
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.modal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  height: auto;
+  max-height: 80%;
+  width: 700px;
+  max-width: 95%;
+  transform: translate(-50%, -50%);
+  padding: 10px !important;
+}
+
+.modal:focus {
+  outline: none;
+}
+
+/** BUTTONS */
+
+.button-bar {
+  display: flex;
+}
+
+.button-bar button {
+  background-color: var(--btn-default-bg-color);
+  background-image: var(--btn-default-bg-image);
+  border: none;
+  border-radius: 4px;
+  color: var(--btn-default-color);
+  display: inline-block;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  height: 30px;
+  margin: 0;
+  padding: 5px 10px 6px;
+  text-align: center;
+  text-decoration: none;
+  text-shadow: 0 -1px 0 rgba(0,0,0,0.2);
+}
+
+.button-bar button:hover {
+    border: 1px solid var(--border-color);
+}
+
+.button-bar *:not(:last-child) {
+  margin-right: 4px;
+}
+
+.button-bar button.danger {
+  background-color: var(--btn-danger-bg-color);
+  background-image: var(--btn-danger-bg-image);
+}
+
+.button-bar button.light {
+  background-color: var(--btn-light-bg-color);
+  background-image: var(--btn-light-bg-image);
+  color: #000;
+}
+
+@media screen and (min-width: 1000px) {
+  .button-bar button {
+    width: 8em;
+  }
+}
+
+/** STATUS */
+
+.metric-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  margin: 20px 0;
+}
+
+.metric-panel h2 {
+  background-color: var(--monitor-header-bg);
+  font-size: 16px;
+  font-weight: 500;
+  padding: 10px;
+}
+
+.metric-panel .metrics {
+  padding: 7px 10px;
+}
+
+.metric-panel .metric {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 3px 0;
+}
+
+.metric .label {
+  flex-basis: 15em;
+  font-weight: 700;
+}
+
+.metric .value {
+  flex-basis: 15em;
+}
+
+.metric .text-value {
+  flex-basis: 40em;
+}
+
+.metric .graph {
+  flex-basis: 25em;
+}
+
+/** MONITOR **/
+
+.monitor-header {
+  display: flex;
+  width: 100%;
+}
+
+.monitor-description {
+  display: inline-block;
+  margin-right: auto;
+}
+
+.monitor {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.monitor th {
+  background: var(--bg-color);
+  border-bottom: 2px solid var(--border-color);
+  text-align: left;
+  padding: 5px;
+  position: sticky;
+  top: 0;
+}
+
+.monitor td {
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  padding: 5px;
+}
+
+.monitor tr:hover {
+  background-color: var(--selected-color);
+  cursor: pointer;
+}
+
+.monitor tr:focus {
+  color: var(--focused-color);
+  background-color: var(--focused-bg-color);
+  outline: none;
+}

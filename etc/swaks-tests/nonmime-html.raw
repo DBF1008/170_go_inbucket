@@ -1,0 +1,10 @@
+Date: %DATE%
+To: %TO_ADDRESS%
+From: %FROM_ADDRESS%
+Subject: Swaks HTML
+MIME-Version: 1.0
+Content-Type: text/html; charset="UTF-8"
+
+<p style="font-family: 'Courier New', Courier, monospace;">
+  This is a test of <b>HTML</b> at the <i>top</i> level.
+</p>

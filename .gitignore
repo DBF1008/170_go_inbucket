@@ -1,0 +1,67 @@
+# Compiled Object files, Static and Dynamic libs (Shared Objects)
+*.o
+*.a
+*.so
+
+# Emacs messiness.
+*~
+
+# Folders
+_obj
+_test
+
+# Architecture specific extensions/prefixes
+*.[568vq]
+[568vq].out
+
+*.cgo1.go
+*.cgo2.c
+_cgo_defun.c
+_cgo_gotypes.go
+_cgo_export.*
+
+_testmain.go
+
+*.exe
+
+# vim files
+*.swp
+*.swo
+tags
+tags.*
+
+# Desktop Services Store on macOS
+.DS_Store
+
+/.direnv
+
+# Inbucket binaries
+/client
+/client.exe
+/inbucket
+/inbucket.exe
+/dist/**
+/cmd/client/client
+/cmd/client/client.exe
+/cmd/inbucket/inbucket
+/cmd/inbucket/inbucket.exe
+
+# Elm UI
+# elm-package generated files
+/ui/index.html
+/ui/elm-stuff
+/ui/tests/elm-stuff
+# elm-repl generated files
+repl-temp-*
+# Distribution
+/ui/dist/
+# Dependency directories
+/ui/node_modules
+/ui/.parcel-cache
+
+# Test lua files
+/inbucket.lua
+
+# IntelliJ
+.idea
+inbucket.iml

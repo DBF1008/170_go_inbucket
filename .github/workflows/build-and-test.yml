@@ -1,0 +1,84 @@
+name: Build and Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  linux-go-build:
+    runs-on: ubuntu-latest
+    name: Linux Go build
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: '.go-version'
+          check-latest: true
+      - name: Build and test
+        run: |
+          go build ./...
+          go test -race -coverprofile=profile.cov ./...
+      - name: Send coverage
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: profile.cov
+          flag-name: Linux-Go
+          parallel: true
+
+  windows-go-build:
+    runs-on: windows-latest
+    name: Windows Go build
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: '.go-version'
+      - name: Build
+        run: go build ./...
+      - name: Test
+        run: go test -race -coverprofile="profile.cov" ./...
+      - name: Send coverage
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: profile.cov
+          flag-name: Windows-Go
+          parallel: true
+
+  ui-build:
+    runs-on: ubuntu-latest
+    name: UI Build
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.x'
+          cache: 'yarn'
+          cache-dependency-path: ui/yarn.lock
+
+      - name: Build frontend
+        run: |
+          yarn install --frozen-lockfile --non-interactive
+          yarn run build
+        working-directory: ./ui
+
+  coverage:
+    needs:
+      - linux-go-build
+      - windows-go-build
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shogo82148/actions-goveralls@v1
+        with:
+          parallel-finished: true
