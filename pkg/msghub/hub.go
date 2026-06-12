@@ -65,43 +65,45 @@ func (hub *Hub) Start(ctx context.Context) {
 }
 
 // Dispatch queues a message for broadcast by the hub.  The message will be placed into the
-// history buffer and then relayed to all registered listeners.
+// history buffer (when enabled) and then relayed to all registered listeners.  Relay happens
+// regardless of the history buffer size, so live notifications keep working even when history is
+// disabled (historyLen == 0).
 func (hub *Hub) Dispatch(msg event.MessageMetadata) {
 	hub.opChan <- func(h *Hub) {
+		// Add to history buffer when history is enabled.
 		if h.history != nil {
-			// Add to history buffer
 			h.history.Value = msg
 			h.history = h.history.Next()
+		}
 
-			// Relay event to all listeners, removing listeners if they return an error.
-			for l := range h.listeners {
-				if err := l.Receive(msg); err != nil {
-					delete(h.listeners, l)
-				}
+		// Relay event to all listeners, removing listeners if they return an error.
+		for l := range h.listeners {
+			if err := l.Receive(msg); err != nil {
+				delete(h.listeners, l)
 			}
 		}
 	}
 }
 
-// Delete removes the message from the history buffer and instructs listeners to do the same.
+// Delete removes the message from the history buffer (when enabled) and instructs listeners to do
+// the same.  Listeners are notified regardless of the history buffer size, so delete notifications
+// keep working even when history is disabled (historyLen == 0).
 func (hub *Hub) Delete(mailbox string, id string) {
 	hub.opChan <- func(h *Hub) {
-		if h.history == nil {
-			return
-		}
-
-		// Locate and remove history entry.
-		p := h.history
-		end := p
-		for {
-			if next, ok := p.Next().Value.(event.MessageMetadata); ok {
-				if mailbox == next.Mailbox && id == next.ID {
-					p.Next().Value = nil
+		// Locate and remove history entry when history is enabled.
+		if h.history != nil {
+			p := h.history
+			end := p
+			for {
+				if next, ok := p.Next().Value.(event.MessageMetadata); ok {
+					if mailbox == next.Mailbox && id == next.ID {
+						p.Next().Value = nil
+						break
+					}
+				}
+				if p = p.Next(); p == end {
 					break
 				}
-			}
-			if p = p.Next(); p == end {
-				break
 			}
 		}
 

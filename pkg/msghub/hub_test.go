@@ -378,3 +378,45 @@ func TestHubContextCancel(t *testing.T) {
 		// Expected result, no overflow
 	}
 }
+
+// TestHubZeroLenReceivesLive ensures that, with history disabled (historyLen == 0), a registered
+// listener still receives live messages. This guards against the regression where setting
+// MonitorHistory to 0 silently disabled real-time delivery.
+func TestHubZeroLenReceivesLive(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hub := New(0, extension.NewHost())
+	go hub.Start(ctx)
+
+	l := newTestListener(1)
+	hub.AddListener(l)
+	hub.Dispatch(event.MessageMetadata{Mailbox: "hub", ID: "1", Subject: "live"})
+
+	select {
+	case <-l.done:
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for live message with zero history:", l)
+	}
+
+	require.Len(t, l.messages, 1)
+	assert.Equal(t, "live", l.messages[0].Subject)
+}
+
+// TestHubZeroLenDeletesLive ensures that, with history disabled (historyLen == 0), a registered
+// listener still receives delete notifications.
+func TestHubZeroLenDeletesLive(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hub := New(0, extension.NewHost())
+	go hub.Start(ctx)
+
+	// testListener.Delete does not signal l.done, so use Sync to barrier instead. AddListener and
+	// Delete are enqueued from this goroutine in order, so Sync guarantees both have been processed.
+	l := newTestListener(0)
+	hub.AddListener(l)
+	hub.Delete("hub", "1")
+	hub.Sync()
+
+	require.Len(t, l.deletes, 1)
+	assert.Equal(t, "hub/1", l.deletes[0])
+}

@@ -2,6 +2,7 @@ package rest
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -35,9 +36,11 @@ var upgraderV1 = websocket.Upgrader{
 
 // msgListenerV1 handles messages from the msghub
 type msgListenerV1 struct {
-	hub     *msghub.Hub                // Global message hub
-	c       chan event.MessageMetadata // Queue of messages from Receive()
-	mailbox string                     // Name of mailbox to monitor, "" == all mailboxes
+	hub       *msghub.Hub                // Global message hub
+	c         chan event.MessageMetadata // Queue of messages from Receive()
+	mailbox   string                     // Name of mailbox to monitor, "" == all mailboxes
+	done      chan struct{}              // Closed once the listener is shut down
+	closeOnce sync.Once                  // Guarantees Close() cleanup runs exactly once
 }
 
 // newMsgListenerV1 creates a listener and registers it.  Optional mailbox parameter will restrict
@@ -47,18 +50,24 @@ func newMsgListenerV1(hub *msghub.Hub, mailbox string) *msgListenerV1 {
 		hub:     hub,
 		c:       make(chan event.MessageMetadata, 100),
 		mailbox: mailbox,
+		done:    make(chan struct{}),
 	}
 	hub.AddListener(ml)
 	return ml
 }
 
-// Receive handles an incoming message.
+// Receive handles an incoming message.  It never blocks the msghub goroutine: once the listener is
+// closed, messages are dropped instead of being enqueued.
 func (ml *msgListenerV1) Receive(msg event.MessageMetadata) error {
 	if ml.mailbox != "" && ml.mailbox != msg.Mailbox {
 		// Did not match the watched mailbox name.
 		return nil
 	}
-	ml.c <- msg
+	select {
+	case ml.c <- msg:
+	case <-ml.done:
+		// Listener closed, drop the message.
+	}
 	return nil
 }
 
@@ -119,19 +128,21 @@ func (ml *msgListenerV1) WSWriter(conn *websocket.Conn) {
 	// Handle messages from hub until msgListener is closed
 	for {
 		select {
-		case msg, ok := <-ml.c:
+		case msg := <-ml.c:
 			if err := conn.SetWriteDeadline(time.Now().Add(writeWaitV1)); err != nil {
 				slog.Warn().Err(err).Msg("Failed to set write deadline for msg")
-			}
-			if !ok {
-				// msgListener closed, exit
-				_ = conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
 			}
 			if conn.WriteJSON(metadataToHeader(&msg)) != nil {
 				// Write failed
 				return
 			}
+		case <-ml.done:
+			// msgListener closed, exit
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWaitV1)); err != nil {
+				slog.Warn().Err(err).Msg("Failed to set write deadline for close")
+			}
+			_ = conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
 		case <-ticker.C:
 			// Send ping
 			if err := conn.SetWriteDeadline(time.Now().Add(writeWaitV1)); err != nil {
@@ -146,15 +157,13 @@ func (ml *msgListenerV1) WSWriter(conn *websocket.Conn) {
 	}
 }
 
-// Close removes the listener registration
+// Close removes the listener registration.  It is safe to call multiple times and from multiple
+// goroutines; the registration is removed and the done channel closed exactly once.
 func (ml *msgListenerV1) Close() {
-	select {
-	case <-ml.c:
-		// Already closed
-	default:
+	ml.closeOnce.Do(func() {
 		ml.hub.RemoveListener(ml)
-		close(ml.c)
-	}
+		close(ml.done)
+	})
 }
 
 // MonitorAllMessagesV1 is a web handler which upgrades the connection to a websocket and notifies

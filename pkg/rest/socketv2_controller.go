@@ -2,6 +2,7 @@ package rest
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -34,9 +35,11 @@ var upgraderV2 = websocket.Upgrader{
 
 // msgListenerV2 handles messages from the msghub
 type msgListenerV2 struct {
-	hub     *msghub.Hub                    // Global message hub.
-	c       chan *model.JSONMonitorEventV2 // Queue of incoming events.
-	mailbox string                         // Name of mailbox to monitor, "" == all mailboxes.
+	hub       *msghub.Hub                    // Global message hub.
+	c         chan *model.JSONMonitorEventV2 // Queue of incoming events.
+	mailbox   string                         // Name of mailbox to monitor, "" == all mailboxes.
+	done      chan struct{}                  // Closed once the listener is shut down.
+	closeOnce sync.Once                      // Guarantees Close() cleanup runs exactly once.
 }
 
 // newMsgListenerV2 creates a listener and registers it.  Optional mailbox parameter will restrict
@@ -46,9 +49,20 @@ func newMsgListenerV2(hub *msghub.Hub, mailbox string) *msgListenerV2 {
 		hub:     hub,
 		c:       make(chan *model.JSONMonitorEventV2, 100),
 		mailbox: mailbox,
+		done:    make(chan struct{}),
 	}
 	hub.AddListener(ml)
 	return ml
+}
+
+// enqueue sends an event to the WebSocket writer.  It never blocks the msghub goroutine: once the
+// listener is closed, events are dropped instead of being enqueued.
+func (ml *msgListenerV2) enqueue(evt *model.JSONMonitorEventV2) {
+	select {
+	case ml.c <- evt:
+	case <-ml.done:
+		// Listener closed, drop the event.
+	}
 }
 
 // Receive handles an incoming message.
@@ -59,10 +73,10 @@ func (ml *msgListenerV2) Receive(msg event.MessageMetadata) error {
 	}
 
 	// Enqueue for websocket.
-	ml.c <- &model.JSONMonitorEventV2{
+	ml.enqueue(&model.JSONMonitorEventV2{
 		Variant: "message-stored",
 		Header:  metadataToHeader(&msg),
-	}
+	})
 
 	return nil
 }
@@ -75,13 +89,13 @@ func (ml *msgListenerV2) Delete(mailbox string, id string) error {
 	}
 
 	// Enqueue for websocket.
-	ml.c <- &model.JSONMonitorEventV2{
+	ml.enqueue(&model.JSONMonitorEventV2{
 		Variant: "message-deleted",
 		Identifier: &model.JSONMessageIDV2{
 			Mailbox: mailbox,
 			ID:      id,
 		},
-	}
+	})
 
 	return nil
 }
@@ -136,19 +150,21 @@ func (ml *msgListenerV2) WSWriter(conn *websocket.Conn) {
 	// Handle messages from hub until msgListener is closed
 	for {
 		select {
-		case event, ok := <-ml.c:
+		case event := <-ml.c:
 			if err := conn.SetWriteDeadline(time.Now().Add(writeWaitV2)); err != nil {
 				slog.Warn().Err(err).Msg("Failed to set write deadline for msg")
-			}
-			if !ok {
-				// msgListener closed, exit
-				_ = conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
 			}
 			if conn.WriteJSON(event) != nil {
 				// Write failed
 				return
 			}
+		case <-ml.done:
+			// msgListener closed, exit
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWaitV2)); err != nil {
+				slog.Warn().Err(err).Msg("Failed to set write deadline for close")
+			}
+			_ = conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
 		case <-ticker.C:
 			// Send ping
 			if err := conn.SetWriteDeadline(time.Now().Add(writeWaitV2)); err != nil {
@@ -163,15 +179,13 @@ func (ml *msgListenerV2) WSWriter(conn *websocket.Conn) {
 	}
 }
 
-// Close removes the listener registration
+// Close removes the listener registration.  It is safe to call multiple times and from multiple
+// goroutines; the registration is removed and the done channel closed exactly once.
 func (ml *msgListenerV2) Close() {
-	select {
-	case <-ml.c:
-		// Already closed
-	default:
+	ml.closeOnce.Do(func() {
 		ml.hub.RemoveListener(ml)
-		close(ml.c)
-	}
+		close(ml.done)
+	})
 }
 
 // MonitorAllMessagesV2 is a web handler which upgrades the connection to a websocket and notifies
