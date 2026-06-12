@@ -26,6 +26,18 @@ func SetupRoutes(r *mux.Router) {
 		web.Handler(MonitorMailboxMessagesV1)).Name("MonitorMailboxMessagesV1").Methods("GET")
 
 	// API v2
+	r.Path("/v2/mailbox/{name}").Handler(
+		web.Handler(MailboxListV2)).Name("MailboxListV2").Methods("GET")
+	r.Path("/v2/mailbox/{name}").Handler(
+		web.Handler(MailboxPurgeV2)).Name("MailboxPurgeV2").Methods("DELETE")
+	r.Path("/v2/mailbox/{name}/{id}").Handler(
+		web.Handler(MailboxShowV2)).Name("MailboxShowV2").Methods("GET")
+	r.Path("/v2/mailbox/{name}/{id}").Handler(
+		web.Handler(MailboxMarkSeenV2)).Name("MailboxMarkSeenV2").Methods("PATCH")
+	r.Path("/v2/mailbox/{name}/{id}").Handler(
+		web.Handler(MailboxDeleteV2)).Name("MailboxDeleteV2").Methods("DELETE")
+	r.Path("/v2/mailbox/{name}/{id}/source").Handler(
+		web.Handler(MailboxSourceV2)).Name("MailboxSourceV2").Methods("GET")
 	r.Path("/v2/monitor/messages").Handler(
 		web.Handler(MonitorAllMessagesV2)).Name("MonitorAllMessagesV2").Methods("GET")
 	r.Path("/v2/monitor/messages/{name}").Handler(
