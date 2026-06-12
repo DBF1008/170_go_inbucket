@@ -49,6 +49,8 @@ func StoreSuite(t *testing.T, factory StoreFactory) {
 		{"cap=10", testMsgCap, config.Storage{MailboxMsgCap: 10}},
 		{"cap=0", testNoMsgCap, config.Storage{MailboxMsgCap: 0}},
 		{"visit mailboxes", testVisitMailboxes, config.Storage{}},
+		{"missing message", testMissingMessage, config.Storage{}},
+		{"delete then operate", testDeleteThenOperate, config.Storage{}},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -443,4 +445,70 @@ func testVisitMailboxes(s storeSuite) {
 	})
 	require.NoError(s, err, "VisitMailboxes() failed")
 	assert.Equal(s, 5, nboxes, "visited %v mailboxes, want: 5", nboxes)
+}
+
+// testMissingMessage verifies that operations on non-existent messages in empty mailboxes
+// return storage.ErrNotExist consistently across all storage backends.
+func testMissingMessage(s storeSuite) {
+	mailbox := "nobody"
+
+	// GetMessage on empty mailbox returns ErrNotExist.
+	msg, err := s.store.GetMessage(mailbox, "doesnotexist")
+	assert.ErrorIs(s, err, storage.ErrNotExist, "GetMessage on empty mailbox must return ErrNotExist")
+	assert.Nil(s, msg, "GetMessage on empty mailbox must return nil message")
+
+	// GetMessage with "latest" on empty mailbox returns ErrNotExist.
+	msg, err = s.store.GetMessage(mailbox, "latest")
+	assert.ErrorIs(s, err, storage.ErrNotExist, "GetMessage(latest) on empty mailbox must return ErrNotExist")
+	assert.Nil(s, msg, "GetMessage(latest) on empty mailbox must return nil message")
+
+	// MarkSeen on empty mailbox returns ErrNotExist.
+	err = s.store.MarkSeen(mailbox, "doesnotexist")
+	assert.ErrorIs(s, err, storage.ErrNotExist, "MarkSeen on empty mailbox must return ErrNotExist")
+
+	// RemoveMessage on empty mailbox returns ErrNotExist.
+	err = s.store.RemoveMessage(mailbox, "doesnotexist")
+	assert.ErrorIs(s, err, storage.ErrNotExist, "RemoveMessage on empty mailbox must return ErrNotExist")
+
+	// Now add a message and test with a non-existent ID.
+	DeliverToStore(s.T, s.store, mailbox, "real message", time.Now())
+
+	msg, err = s.store.GetMessage(mailbox, "bogusid")
+	assert.ErrorIs(s, err, storage.ErrNotExist, "GetMessage with bogus ID must return ErrNotExist")
+	assert.Nil(s, msg, "GetMessage with bogus ID must return nil message")
+
+	err = s.store.MarkSeen(mailbox, "bogusid")
+	assert.ErrorIs(s, err, storage.ErrNotExist, "MarkSeen with bogus ID must return ErrNotExist")
+
+	err = s.store.RemoveMessage(mailbox, "bogusid")
+	assert.ErrorIs(s, err, storage.ErrNotExist, "RemoveMessage with bogus ID must return ErrNotExist")
+}
+
+// testDeleteThenOperate verifies that after a message is deleted, subsequent Get, MarkSeen,
+// and Remove operations on that message all return ErrNotExist consistently.
+func testDeleteThenOperate(s storeSuite) {
+	mailbox := "deletetest"
+	id, _ := DeliverToStore(s.T, s.store, mailbox, "to be deleted", time.Now())
+
+	// Confirm message exists.
+	msg, err := s.store.GetMessage(mailbox, id)
+	require.NoError(s, err, "GetMessage before delete must succeed")
+	require.NotNil(s, msg, "message must exist before delete")
+
+	// Delete the message.
+	err = s.store.RemoveMessage(mailbox, id)
+	require.NoError(s, err, "RemoveMessage must succeed")
+
+	// GetMessage after delete returns ErrNotExist.
+	msg, err = s.store.GetMessage(mailbox, id)
+	assert.ErrorIs(s, err, storage.ErrNotExist, "GetMessage after delete must return ErrNotExist")
+	assert.Nil(s, msg, "GetMessage after delete must return nil message")
+
+	// MarkSeen after delete returns ErrNotExist.
+	err = s.store.MarkSeen(mailbox, id)
+	assert.ErrorIs(s, err, storage.ErrNotExist, "MarkSeen after delete must return ErrNotExist")
+
+	// Double delete returns ErrNotExist.
+	err = s.store.RemoveMessage(mailbox, id)
+	assert.ErrorIs(s, err, storage.ErrNotExist, "double RemoveMessage must return ErrNotExist")
 }

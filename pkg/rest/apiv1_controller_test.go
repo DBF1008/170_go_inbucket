@@ -305,3 +305,127 @@ func TestRestMarkSeen(t *testing.T) {
 		_, _ = io.Copy(os.Stderr, logbuf)
 	}
 }
+
+func TestRestMarkSeenMissing(t *testing.T) {
+	mm := test.NewManager()
+	logbuf := setupWebServer(mm)
+
+	// MarkSeen on empty mailbox returns 404.
+	w, err := testRestPatch("http://localhost/api/v1/mailbox/empty/0001", `{"seen":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("MarkSeen on empty mailbox: got %v, want 404", w.Code)
+	}
+
+	// Add a message and test with a non-existent ID.
+	meta1 := event.MessageMetadata{
+		Mailbox: "good",
+		ID:      "0001",
+		From:    &mail.Address{Name: "", Address: "from1@host"},
+		To:      []*mail.Address{{Name: "", Address: "to1@host"}},
+		Subject: "subject 1",
+		Date:    time.Date(2012, 2, 1, 10, 11, 12, 253, time.UTC),
+	}
+	mm.AddMessage("good", &message.Message{MessageMetadata: meta1})
+
+	// MarkSeen with bogus ID returns 404.
+	w, err = testRestPatch("http://localhost/api/v1/mailbox/good/9999", `{"seen":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("MarkSeen on bogus ID: got %v, want 404", w.Code)
+	}
+
+	if t.Failed() {
+		time.Sleep(2 * time.Second)
+		_, _ = io.Copy(os.Stderr, logbuf)
+	}
+}
+
+func TestRestDelete(t *testing.T) {
+	mm := test.NewManager()
+	logbuf := setupWebServer(mm)
+
+	// Delete on empty mailbox returns 404.
+	w, err := testRestDelete("http://localhost/api/v1/mailbox/empty/0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("Delete on empty mailbox: got %v, want 404", w.Code)
+	}
+
+	// Add two messages.
+	tzPST := time.FixedZone("PST", -8*3600)
+	meta1 := event.MessageMetadata{
+		Mailbox: "good",
+		ID:      "0001",
+		From:    &mail.Address{Name: "", Address: "from1@host"},
+		To:      []*mail.Address{{Name: "", Address: "to1@host"}},
+		Subject: "subject 1",
+		Date:    time.Date(2012, 2, 1, 10, 11, 12, 253, tzPST),
+	}
+	meta2 := event.MessageMetadata{
+		Mailbox: "good",
+		ID:      "0002",
+		From:    &mail.Address{Name: "", Address: "from2@host"},
+		To:      []*mail.Address{{Name: "", Address: "to1@host"}},
+		Subject: "subject 2",
+		Date:    time.Date(2012, 7, 1, 10, 11, 12, 253, tzPST),
+	}
+	mm.AddMessage("good", &message.Message{MessageMetadata: meta1})
+	mm.AddMessage("good", &message.Message{MessageMetadata: meta2})
+
+	// Delete existing message returns 200.
+	w, err = testRestDelete("http://localhost/api/v1/mailbox/good/0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 {
+		t.Errorf("Delete existing message: got %v, want 200", w.Code)
+	}
+
+	// GET deleted message returns 404.
+	w, err = testRestGet("http://localhost/api/v1/mailbox/good/0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("Get deleted message: got %v, want 404", w.Code)
+	}
+
+	// MarkSeen deleted message returns 404.
+	w, err = testRestPatch("http://localhost/api/v1/mailbox/good/0001", `{"seen":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("MarkSeen deleted message: got %v, want 404", w.Code)
+	}
+
+	// Double delete returns 404.
+	w, err = testRestDelete("http://localhost/api/v1/mailbox/good/0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("Double delete: got %v, want 404", w.Code)
+	}
+
+	// Other message still exists.
+	w, err = testRestGet("http://localhost/api/v1/mailbox/good/0002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 {
+		t.Errorf("Get remaining message: got %v, want 200", w.Code)
+	}
+
+	if t.Failed() {
+		time.Sleep(2 * time.Second)
+		_, _ = io.Copy(os.Stderr, logbuf)
+	}
+}

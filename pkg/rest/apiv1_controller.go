@@ -148,12 +148,12 @@ func MailboxSourceV1(w http.ResponseWriter, req *http.Request, ctx *web.Context)
 		return err
 	}
 	r, err := ctx.Manager.SourceReader(name, id)
-	if err != nil && err != storage.ErrNotExist {
-		return fmt.Errorf("SourceReader(%q) failed: %v", id, err)
-	}
-	if r == nil {
+	if err == storage.ErrNotExist {
 		http.NotFound(w, req)
 		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("SourceReader(%q) failed: %v", id, err)
 	}
 	// Output message source
 	w.Header().Set("Content-Type", "text/plain")

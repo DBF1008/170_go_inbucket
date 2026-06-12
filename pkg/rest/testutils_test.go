@@ -51,6 +51,23 @@ func testRestPatch(url string, body string) (*httptest.ResponseRecorder, error) 
 	return w, nil
 }
 
+func testRestDelete(url string) (*httptest.ResponseRecorder, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	req.Header.Add("Accept", "application/json")
+	if err != nil {
+		return nil, err
+	}
+
+	// Pass request to handlers directly.
+	w := httptest.NewRecorder()
+	web.Router.ServeHTTP(w, req)
+
+	return w, nil
+}
+
 func setupWebServer(mm message.Manager) *bytes.Buffer {
 	// Capture log output
 	buf := new(bytes.Buffer)

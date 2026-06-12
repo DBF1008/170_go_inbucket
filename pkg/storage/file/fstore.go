@@ -173,6 +173,7 @@ func (fs *Store) MarkSeen(mailbox, id string) error {
 		}
 	}
 
+	found := false
 	for _, m := range mb.messages {
 		if m.Fid == id {
 			if m.Fseen {
@@ -180,8 +181,12 @@ func (fs *Store) MarkSeen(mailbox, id string) error {
 				return nil
 			}
 			m.Fseen = true
+			found = true
 			break
 		}
+	}
+	if !found {
+		return storage.ErrNotExist
 	}
 
 	return mb.writeIndex()

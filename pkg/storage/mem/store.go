@@ -104,7 +104,7 @@ func (s *Store) GetMessage(mailbox, id string) (m storage.Message, err error) {
 		}
 		count := len(ms)
 		if count == 0 {
-			return nil, nil
+			return nil, storage.ErrNotExist
 		}
 		return ms[count-1], nil
 	}
@@ -113,6 +113,7 @@ func (s *Store) GetMessage(mailbox, id string) (m storage.Message, err error) {
 		m, ok = mb.messages[id]
 		if !ok {
 			m = nil
+			err = storage.ErrNotExist
 		}
 	})
 	return m, err
@@ -134,12 +135,17 @@ func (s *Store) GetMessages(mailbox string) (ms []storage.Message, err error) {
 
 // MarkSeen marks a message as having been read.
 func (s *Store) MarkSeen(mailbox, id string) error {
+	var found bool
 	s.withMailbox(mailbox, true, func(mb *mbox) {
 		m := mb.messages[id]
 		if m != nil {
 			m.seen = true
+			found = true
 		}
 	})
+	if !found {
+		return storage.ErrNotExist
+	}
 	return nil
 }
 
@@ -188,9 +194,10 @@ func (s *Store) removeMessage(mailbox, id string) *Message {
 // RemoveMessage deletes a single message.
 func (s *Store) RemoveMessage(mailbox, id string) error {
 	m := s.removeMessage(mailbox, id)
-	if m != nil {
-		s.enforcerRemove(m)
+	if m == nil {
+		return storage.ErrNotExist
 	}
+	s.enforcerRemove(m)
 	return nil
 }
 
