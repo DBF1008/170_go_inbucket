@@ -2,6 +2,7 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/mail"
 	"net/textproto"
@@ -297,6 +298,96 @@ func TestRestMarkSeen(t *testing.T) {
 	decodedBoolEquals(t, result, "[0]/seen", false)
 	decodedStringEquals(t, result, "[1]/id", "0002")
 	decodedBoolEquals(t, result, "[1]/seen", true)
+
+	if t.Failed() {
+		// Wait for handler to finish logging
+		time.Sleep(2 * time.Second)
+		// Dump buffered log data if there was a failure
+		_, _ = io.Copy(os.Stderr, logbuf)
+	}
+}
+
+func TestRestMailboxesList(t *testing.T) {
+	mm := test.NewManager()
+	logbuf := setupWebServer(mm)
+
+	// Empty overview: no mailboxes should render an empty JSON array, not null.
+	w, err := testRestGet("http://localhost/api/v1/mailboxes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 {
+		t.Fatalf("Expected code 200, got %v", w.Code)
+	}
+	dec := json.NewDecoder(w.Body)
+	var empty []interface{}
+	if err := dec.Decode(&empty); err != nil {
+		t.Errorf("Failed to decode JSON: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("Expected 0 mailboxes, got %v", len(empty))
+	}
+
+	// Populate several mailboxes, delivered out of alphabetical order to verify sorting.
+	tzPST := time.FixedZone("PST", -8*3600)
+	addMsg := func(mailbox, id, subject string, date time.Time, seen bool) {
+		mm.AddMessage(mailbox, &message.Message{MessageMetadata: event.MessageMetadata{
+			Mailbox: mailbox,
+			ID:      id,
+			From:    &mail.Address{Name: "", Address: "from@host"},
+			To:      []*mail.Address{{Name: "", Address: "to@host"}},
+			Subject: subject,
+			Date:    date,
+			Seen:    seen,
+		}})
+	}
+	// zeta: a single unread message.
+	addMsg("zeta", "0001", "z subject", time.Date(2012, 2, 1, 10, 11, 12, 253, tzPST), false)
+	// alpha: two messages, the first seen -> unread 1, latest is "a second".
+	addMsg("alpha", "0001", "a first", time.Date(2012, 2, 1, 10, 0, 0, 0, tzPST), true)
+	addMsg("alpha", "0002", "a second", time.Date(2012, 2, 1, 11, 0, 0, 0, tzPST), false)
+
+	w, err = testRestGet("http://localhost/api/v1/mailboxes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 {
+		t.Fatalf("Expected code 200, got %v", w.Code)
+	}
+	dec = json.NewDecoder(w.Body)
+	var result []interface{}
+	if err := dec.Decode(&result); err != nil {
+		t.Errorf("Failed to decode JSON: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 mailboxes, got %v", len(result))
+	}
+
+	// Sorted by mailbox name: alpha precedes zeta.
+	decodedStringEquals(t, result, "[0]/name", "alpha")
+	decodedNumberEquals(t, result, "[0]/total", 2)
+	decodedNumberEquals(t, result, "[0]/unread", 1)
+	decodedStringEquals(t, result, "[0]/latest/id", "0002")
+	decodedStringEquals(t, result, "[0]/latest/subject", "a second")
+	decodedStringEquals(t, result, "[0]/latest/from", "<from@host>")
+	decodedStringEquals(t, result, "[0]/latest/to/[0]", "<to@host>")
+	decodedBoolEquals(t, result, "[0]/latest/seen", false)
+	decodedStringEquals(t, result, "[1]/name", "zeta")
+	decodedNumberEquals(t, result, "[1]/total", 1)
+	decodedNumberEquals(t, result, "[1]/unread", 1)
+	decodedStringEquals(t, result, "[1]/latest/id", "0001")
+	decodedStringEquals(t, result, "[1]/latest/subject", "z subject")
+
+	// Storage failure should surface as a 500.
+	mm.MailboxesErr = errors.New("simulated storage failure")
+	w, err = testRestGet("http://localhost/api/v1/mailboxes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 500 {
+		t.Errorf("Expected code 500, got %v", w.Code)
+	}
+	mm.MailboxesErr = nil
 
 	if t.Failed() {
 		// Wait for handler to finish logging

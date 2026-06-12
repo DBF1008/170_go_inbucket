@@ -17,6 +17,14 @@ type JSONMessageHeaderV1 struct {
 	Seen        bool      `json:"seen"`
 }
 
+// JSONMailboxV1 summarizes a single active mailbox for the mailbox overview endpoint.
+type JSONMailboxV1 struct {
+	Name   string               `json:"name"`
+	Total  int                  `json:"total"`
+	Unread int                  `json:"unread"`
+	Latest *JSONMessageHeaderV1 `json:"latest"`
+}
+
 // JSONMessageV1 contains the same data as the header plus a JSONMessageBody.
 type JSONMessageV1 struct {
 	Mailbox     string                     `json:"mailbox"`

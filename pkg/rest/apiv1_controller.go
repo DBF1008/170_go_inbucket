@@ -16,6 +16,36 @@ import (
 	"github.com/inbucket/inbucket/v3/pkg/stringutil"
 )
 
+// MailboxesListV1 renders a summary of all active (non-empty) mailboxes, including each mailbox's
+// total message count, unread count, and a summary of its most recent message.
+func MailboxesListV1(w http.ResponseWriter, req *http.Request, ctx *web.Context) (err error) {
+	summaries, err := ctx.Manager.GetMailboxes()
+	if err != nil {
+		return fmt.Errorf("failed to list mailboxes: %v", err)
+	}
+	jmailboxes := make([]*model.JSONMailboxV1, len(summaries))
+	for i, mb := range summaries {
+		latest := mb.Latest
+		jmailboxes[i] = &model.JSONMailboxV1{
+			Name:   mb.Name,
+			Total:  mb.Total,
+			Unread: mb.Unread,
+			Latest: &model.JSONMessageHeaderV1{
+				Mailbox:     latest.Mailbox,
+				ID:          latest.ID,
+				From:        stringutil.StringAddress(latest.From),
+				To:          stringutil.StringAddressList(latest.To),
+				Subject:     latest.Subject,
+				Date:        latest.Date,
+				PosixMillis: latest.Date.UnixNano() / 1000000,
+				Size:        latest.Size,
+				Seen:        latest.Seen,
+			},
+		}
+	}
+	return web.RenderJSON(w, jmailboxes)
+}
+
 // MailboxListV1 renders a list of messages in a mailbox
 func MailboxListV1(w http.ResponseWriter, req *http.Request, ctx *web.Context) (err error) {
 	// Don't have to validate these aren't empty, Gorilla returns 404

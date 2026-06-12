@@ -46,6 +46,20 @@ func (c *Client) ListMailbox(name string) ([]*MessageHeader, error) {
 	return c.ListMailboxWithContext(context.Background(), name)
 }
 
+// ListMailboxes returns a summary of all active (non-empty) mailboxes on the server.
+func (c *Client) ListMailboxes() ([]*model.JSONMailboxV1, error) {
+	return c.ListMailboxesWithContext(context.Background())
+}
+
+// ListMailboxesWithContext returns a summary of all active (non-empty) mailboxes on the server.
+func (c *Client) ListMailboxesWithContext(ctx context.Context) ([]*model.JSONMailboxV1, error) {
+	mailboxes := make([]*model.JSONMailboxV1, 0, 32)
+	if err := c.doJSON(ctx, "GET", "/api/v1/mailboxes", &mailboxes); err != nil {
+		return nil, err
+	}
+	return mailboxes, nil
+}
+
 // ListMailboxWithContext returns a list of messages for the requested mailbox
 func (c *Client) ListMailboxWithContext(ctx context.Context, name string) ([]*MessageHeader, error) {
 	uri := "/api/v1/mailbox/" + url.QueryEscape(name)

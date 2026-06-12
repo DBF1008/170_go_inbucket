@@ -2,6 +2,7 @@ package test
 
 import (
 	"errors"
+	"sort"
 
 	"github.com/inbucket/inbucket/v3/pkg/config"
 	"github.com/inbucket/inbucket/v3/pkg/extension/event"
@@ -14,6 +15,8 @@ import (
 type ManagerStub struct {
 	message.Manager
 	mailboxes map[string][]*message.Message
+	// MailboxesErr, when set, is returned by GetMailboxes to simulate a storage failure.
+	MailboxesErr error
 }
 
 // NewManager creates a new ManagerStub.
@@ -53,6 +56,37 @@ func (m *ManagerStub) GetMetadata(mailbox string) ([]*event.MessageMetadata, err
 		metas[i] = &msg.MessageMetadata
 	}
 	return metas, nil
+}
+
+// GetMailboxes returns a summary of each active (non-empty) mailbox, sorted by name. Set
+// MailboxesErr to simulate a storage failure.
+func (m *ManagerStub) GetMailboxes() ([]*message.MailboxSummary, error) {
+	if m.MailboxesErr != nil {
+		return nil, m.MailboxesErr
+	}
+	summaries := make([]*message.MailboxSummary, 0, len(m.mailboxes))
+	for name, msgs := range m.mailboxes {
+		if len(msgs) == 0 {
+			continue
+		}
+		unread := 0
+		for _, msg := range msgs {
+			if !msg.Seen {
+				unread++
+			}
+		}
+		latest := msgs[len(msgs)-1]
+		summaries = append(summaries, &message.MailboxSummary{
+			Name:   name,
+			Total:  len(msgs),
+			Unread: unread,
+			Latest: &latest.MessageMetadata,
+		})
+	}
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Name < summaries[j].Name
+	})
+	return summaries, nil
 }
 
 // MailboxForAddress invokes policy.ParseMailboxName.

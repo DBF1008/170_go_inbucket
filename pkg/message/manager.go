@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/mail"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ type Manager interface {
 		recvdHeader string,
 		content []byte,
 	) error
+	GetMailboxes() ([]*MailboxSummary, error)
 	GetMetadata(mailbox string) ([]*event.MessageMetadata, error)
 	GetMessage(mailbox, id string) (*Message, error)
 	MarkSeen(mailbox, id string) error
@@ -152,6 +154,51 @@ func (s *StoreManager) GetMetadata(mailbox string) ([]*event.MessageMetadata, er
 		metas[i] = MakeMetadata(sm)
 	}
 	return metas, nil
+}
+
+// MailboxSummary describes the current state of a single active mailbox.
+type MailboxSummary struct {
+	Name   string                 // Mailbox name.
+	Total  int                    // Total number of messages stored.
+	Unread int                    // Number of unread (unseen) messages.
+	Latest *event.MessageMetadata // Metadata of the most recent message.
+}
+
+// GetMailboxes returns a summary of each active (non-empty) mailbox in the store, sorted by
+// mailbox name. Empty mailboxes are omitted so the result is consistent across storage backends
+// and after messages are deleted or purged: some backends retain emptied mailboxes while others
+// remove them entirely.
+func (s *StoreManager) GetMailboxes() ([]*MailboxSummary, error) {
+	summaries := make([]*MailboxSummary, 0, 16)
+	err := s.Store.VisitMailboxes(func(messages []storage.Message) bool {
+		if len(messages) == 0 {
+			return true
+		}
+		unread := 0
+		for _, m := range messages {
+			if !m.Seen() {
+				unread++
+			}
+		}
+		// Messages are returned in delivery order; the last one is the most recent.
+		latest := messages[len(messages)-1]
+		summaries = append(summaries, &MailboxSummary{
+			Name:   latest.Mailbox(),
+			Total:  len(messages),
+			Unread: unread,
+			Latest: MakeMetadata(latest),
+		})
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Storage backends visit mailboxes in differing, often unstable orders (memory uses Go map
+	// iteration, file uses hashed directories); sort by name for a deterministic result.
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Name < summaries[j].Name
+	})
+	return summaries, nil
 }
 
 // GetMessage returns the specified message.

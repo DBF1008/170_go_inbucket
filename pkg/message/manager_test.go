@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/mail"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,9 @@ import (
 	"github.com/inbucket/inbucket/v3/pkg/extension/event"
 	"github.com/inbucket/inbucket/v3/pkg/message"
 	"github.com/inbucket/inbucket/v3/pkg/policy"
+	"github.com/inbucket/inbucket/v3/pkg/storage"
+	"github.com/inbucket/inbucket/v3/pkg/storage/file"
+	"github.com/inbucket/inbucket/v3/pkg/storage/mem"
 	"github.com/inbucket/inbucket/v3/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -591,5 +595,144 @@ func assertMessageCount(t *testing.T, sm *message.StoreManager, mailbox string, 
 	got := len(metas)
 	if got != count {
 		t.Errorf("Mailbox %q got %v messages, wanted %v", mailbox, got, count)
+	}
+}
+
+// managerForStore builds a minimal StoreManager backed by the given store. GetMailboxes only relies
+// on the Store, so AddrPolicy is intentionally omitted.
+func managerForStore(store storage.Store) *message.StoreManager {
+	return &message.StoreManager{
+		Store:   store,
+		ExtHost: extension.NewHost(),
+	}
+}
+
+// mailboxBackend describes a storage backend the overview tests run against.
+type mailboxBackend struct {
+	name string
+	make func(t *testing.T) storage.Store
+}
+
+// mailboxBackends returns the storage backends exercised by the overview tests. Running identical
+// assertions against each backend proves their GetMailboxes results are consistent.
+func mailboxBackends() []mailboxBackend {
+	return []mailboxBackend{
+		{
+			name: "mem",
+			make: func(t *testing.T) storage.Store {
+				s, err := mem.New(config.Storage{}, extension.NewHost())
+				require.NoError(t, err, "mem.New failed")
+				return s
+			},
+		},
+		{
+			name: "file",
+			make: func(t *testing.T) storage.Store {
+				dir, err := os.MkdirTemp("", "inbucket-overview-*")
+				require.NoError(t, err, "MkdirTemp failed")
+				t.Cleanup(func() { _ = os.RemoveAll(dir) })
+				s, err := file.New(
+					config.Storage{Params: map[string]string{"path": dir}}, extension.NewHost())
+				require.NoError(t, err, "file.New failed")
+				return s
+			},
+		},
+	}
+}
+
+func assertMailboxSummary(
+	t *testing.T,
+	got *message.MailboxSummary,
+	name string,
+	total, unread int,
+	latestSubject string,
+	latestSeen bool,
+) {
+	t.Helper()
+	assert.Equal(t, name, got.Name, "mailbox name")
+	assert.Equal(t, total, got.Total, "total for %q", name)
+	assert.Equal(t, unread, got.Unread, "unread for %q", name)
+	require.NotNil(t, got.Latest, "latest metadata for %q must not be nil", name)
+	assert.Equal(t, latestSubject, got.Latest.Subject, "latest subject for %q", name)
+	assert.Equal(t, latestSeen, got.Latest.Seen, "latest seen flag for %q", name)
+}
+
+// TestStoreManagerGetMailboxesEmpty confirms an empty store yields no mailboxes on every backend.
+func TestStoreManagerGetMailboxesEmpty(t *testing.T) {
+	for _, be := range mailboxBackends() {
+		t.Run(be.name, func(t *testing.T) {
+			sm := managerForStore(be.make(t))
+
+			boxes, err := sm.GetMailboxes()
+			require.NoError(t, err, "GetMailboxes failed")
+			assert.Empty(t, boxes, "expected no mailboxes for an empty store")
+		})
+	}
+}
+
+// TestStoreManagerGetMailboxes verifies the overview summarizes multiple mailboxes, sorts them by
+// name, counts unread messages, and reports the most recent message - identically on each backend.
+func TestStoreManagerGetMailboxes(t *testing.T) {
+	for _, be := range mailboxBackends() {
+		t.Run(be.name, func(t *testing.T) {
+			store := be.make(t)
+			sm := managerForStore(store)
+			base := time.Now()
+
+			// Deliver to mailboxes out of alphabetical order to exercise sorting.
+			// charlie: 2 messages, both marked seen -> unread 0, latest "c2".
+			c1, _ := test.DeliverToStore(t, store, "charlie", "c1", base)
+			c2, _ := test.DeliverToStore(t, store, "charlie", "c2", base.Add(time.Second))
+			require.NoError(t, store.MarkSeen("charlie", c1))
+			require.NoError(t, store.MarkSeen("charlie", c2))
+
+			// alpha: 3 messages, first marked seen -> unread 2, latest "a3" (unseen).
+			a1, _ := test.DeliverToStore(t, store, "alpha", "a1", base)
+			test.DeliverToStore(t, store, "alpha", "a2", base.Add(time.Second))
+			test.DeliverToStore(t, store, "alpha", "a3", base.Add(2*time.Second))
+			require.NoError(t, store.MarkSeen("alpha", a1))
+
+			// bravo: 1 message, unseen -> unread 1, latest "b1".
+			test.DeliverToStore(t, store, "bravo", "b1", base)
+
+			boxes, err := sm.GetMailboxes()
+			require.NoError(t, err, "GetMailboxes failed")
+			require.Len(t, boxes, 3, "expected 3 active mailboxes")
+
+			// Results must be sorted by mailbox name regardless of delivery order.
+			assertMailboxSummary(t, boxes[0], "alpha", 3, 2, "a3", false)
+			assertMailboxSummary(t, boxes[1], "bravo", 1, 1, "b1", false)
+			assertMailboxSummary(t, boxes[2], "charlie", 2, 0, "c2", true)
+		})
+	}
+}
+
+// TestStoreManagerGetMailboxesConsistentAfterEmptying confirms mailboxes that become empty via purge
+// or deletion are excluded from the overview, yielding identical results across backends even though
+// some retain emptied mailboxes internally while others remove them.
+func TestStoreManagerGetMailboxesConsistentAfterEmptying(t *testing.T) {
+	for _, be := range mailboxBackends() {
+		t.Run(be.name, func(t *testing.T) {
+			store := be.make(t)
+			sm := managerForStore(store)
+			now := time.Now()
+
+			// keep: stays populated. purged: emptied via PurgeMessages. emptied: emptied by deleting
+			// its only message.
+			test.DeliverToStore(t, store, "keep", "k1", now)
+			test.DeliverToStore(t, store, "keep", "k2", now.Add(time.Second))
+			test.DeliverToStore(t, store, "purged", "p1", now)
+			test.DeliverToStore(t, store, "purged", "p2", now)
+			emptiedID, _ := test.DeliverToStore(t, store, "emptied", "e1", now)
+
+			require.NoError(t, store.PurgeMessages("purged"), "PurgeMessages failed")
+			require.NoError(t, store.RemoveMessage("emptied", emptiedID), "RemoveMessage failed")
+
+			boxes, err := sm.GetMailboxes()
+			require.NoError(t, err, "GetMailboxes failed")
+
+			require.Len(t, boxes, 1, "only the populated mailbox should remain active")
+			assertMailboxSummary(t, boxes[0], "keep", 2, 2, "k2", false)
+		})
 	}
 }

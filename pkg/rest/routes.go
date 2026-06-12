@@ -8,6 +8,8 @@ import (
 // SetupRoutes populates the routes for the REST interface
 func SetupRoutes(r *mux.Router) {
 	// API v1
+	r.Path("/v1/mailboxes").Handler(
+		web.Handler(MailboxesListV1)).Name("MailboxesListV1").Methods("GET")
 	r.Path("/v1/mailbox/{name}").Handler(
 		web.Handler(MailboxListV1)).Name("MailboxListV1").Methods("GET")
 	r.Path("/v1/mailbox/{name}").Handler(
