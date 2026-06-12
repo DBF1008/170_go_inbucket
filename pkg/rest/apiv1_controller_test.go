@@ -305,3 +305,94 @@ func TestRestMarkSeen(t *testing.T) {
 		_, _ = io.Copy(os.Stderr, logbuf)
 	}
 }
+
+// TestRestMessageAttachmentLinks verifies that attachment view/download links are
+// generated with the correct scheme, host, and base path across deployment styles:
+// a plain direct connection, behind an HTTPS reverse proxy under a sub-path, and
+// when the proxy rewrites the host via X-Forwarded-Host.
+func TestRestMessageAttachmentLinks(t *testing.T) {
+	tzPST := time.FixedZone("PST", -8*3600)
+
+	testCases := []struct {
+		name     string
+		basePath string
+		reqPath  string
+		headers  map[string]string
+		wantLink string
+	}{
+		{
+			name:     "plain direct connection",
+			basePath: "",
+			reqPath:  "/api/v1/mailbox/good/0001",
+			headers:  nil,
+			wantLink: "http://localhost/serve/mailbox/good/0001/attach/0/statement.pdf",
+		},
+		{
+			name:     "https forwarded with base path",
+			basePath: "inbucket",
+			reqPath:  "/inbucket/api/v1/mailbox/good/0001",
+			headers:  map[string]string{"X-Forwarded-Proto": "https"},
+			wantLink: "https://localhost/inbucket/serve/mailbox/good/0001/attach/0/statement.pdf",
+		},
+		{
+			name:     "https forwarded host with base path",
+			basePath: "inbucket",
+			reqPath:  "/inbucket/api/v1/mailbox/good/0001",
+			headers: map[string]string{
+				"X-Forwarded-Proto": "https",
+				"X-Forwarded-Host":  "mail.example.com",
+			},
+			wantLink: "https://mail.example.com/inbucket/serve/mailbox/good/0001/attach/0/statement.pdf",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mm := test.NewManager()
+			logbuf := setupWebServerBasePath(mm, tc.basePath)
+
+			msg := message.New(
+				event.MessageMetadata{
+					Mailbox: "good",
+					ID:      "0001",
+					From:    &mail.Address{Name: "", Address: "from1@host"},
+					To:      []*mail.Address{{Name: "", Address: "to1@host"}},
+					Subject: "subject 1",
+					Date:    time.Date(2012, 2, 1, 10, 11, 12, 253, tzPST),
+				},
+				&enmime.Envelope{
+					Root: &enmime.Part{Header: textproto.MIMEHeader{}},
+					Inlines: []*enmime.Part{{
+						FileName:    "statement.pdf",
+						ContentType: "application/pdf",
+					}},
+				},
+			)
+			mm.AddMessage("good", msg)
+
+			w, err := testRestGetWithHeaders("http://localhost"+tc.reqPath, tc.headers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != 200 {
+				t.Fatalf("Expected code 200, got %v", w.Code)
+			}
+
+			dec := json.NewDecoder(w.Body)
+			var result map[string]interface{}
+			if err := dec.Decode(&result); err != nil {
+				t.Errorf("Failed to decode JSON: %v", err)
+			}
+
+			decodedStringEquals(t, result, "attachments/[0]/download-link", tc.wantLink)
+			decodedStringEquals(t, result, "attachments/[0]/view-link", tc.wantLink)
+
+			if t.Failed() {
+				// Wait for handler to finish logging
+				time.Sleep(2 * time.Second)
+				// Dump buffered log data if there was a failure
+				_, _ = io.Copy(os.Stderr, logbuf)
+			}
+		})
+	}
+}

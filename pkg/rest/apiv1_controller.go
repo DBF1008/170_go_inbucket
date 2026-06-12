@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/inbucket/inbucket/v3/pkg/rest/model"
 	"github.com/inbucket/inbucket/v3/pkg/server/web"
@@ -63,11 +64,16 @@ func MailboxShowV1(w http.ResponseWriter, req *http.Request, ctx *web.Context) (
 	}
 	attachParts := msg.Attachments()
 	attachments := make([]*model.JSONMessageAttachmentV1, len(attachParts))
+	// Build attachment links from the externally-visible origin (honoring reverse
+	// proxy forwarding headers) and the configured BasePath, so they remain usable
+	// behind an HTTPS proxy or under a sub-path deployment.
+	baseURL := requestBaseURL(req)
+	prefix := stringutil.MakePathPrefixer(ctx.WebConfig.BasePath)
 	for i, part := range attachParts {
 		content := part.Content
-		// Example URL: http://localhost/serve/mailbox/swaks/0001/attach/0/favicon.png
-		link := "http://" + req.Host + "/serve/mailbox/" + name + "/" + id + "/attach/" +
-			strconv.Itoa(i) + "/" + part.FileName
+		// Example URL: https://example.com/base/serve/mailbox/swaks/0001/attach/0/favicon.png
+		link := baseURL + prefix("/serve/mailbox/"+name+"/"+id+"/attach/"+
+			strconv.Itoa(i)+"/"+part.FileName)
 		checksum := md5.Sum(content)
 		attachments[i] = &model.JSONMessageAttachmentV1{
 			ContentType:  part.ContentType,
@@ -179,4 +185,35 @@ func MailboxDeleteV1(w http.ResponseWriter, req *http.Request, ctx *web.Context)
 		return fmt.Errorf("RemoveMessage(%q) failed: %v", id, err)
 	}
 	return web.RenderJSON(w, "OK")
+}
+
+// requestBaseURL returns the externally-visible origin (scheme://host) for the
+// request. It honors the X-Forwarded-Proto and X-Forwarded-Host headers set by
+// reverse proxies so generated links stay reachable when Inbucket is served
+// behind an HTTPS proxy, falling back to the request's own TLS state and Host
+// for direct connections.
+func requestBaseURL(req *http.Request) string {
+	scheme := "http"
+	if req.TLS != nil {
+		scheme = "https"
+	}
+	if v := firstForwardedValue(req.Header.Get("X-Forwarded-Proto")); v != "" {
+		scheme = v
+	}
+
+	host := req.Host
+	if v := firstForwardedValue(req.Header.Get("X-Forwarded-Host")); v != "" {
+		host = v
+	}
+
+	return scheme + "://" + host
+}
+
+// firstForwardedValue returns the first, trimmed entry of a potentially
+// comma-separated X-Forwarded-* header value, as proxies may append a list.
+func firstForwardedValue(v string) string {
+	if i := strings.IndexByte(v, ','); i >= 0 {
+		v = v[:i]
+	}
+	return strings.TrimSpace(v)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/inbucket/inbucket/v3/pkg/message"
 	"github.com/inbucket/inbucket/v3/pkg/msghub"
 	"github.com/inbucket/inbucket/v3/pkg/server/web"
+	"github.com/inbucket/inbucket/v3/pkg/stringutil"
 )
 
 func testRestGet(url string) (*httptest.ResponseRecorder, error) {
@@ -25,6 +26,30 @@ func testRestGet(url string) (*httptest.ResponseRecorder, error) {
 	req.Header.Add("Accept", "application/json")
 	if err != nil {
 		return nil, err
+	}
+
+	// Pass request to handlers directly.
+	w := httptest.NewRecorder()
+	web.Router.ServeHTTP(w, req)
+
+	return w, nil
+}
+
+// testRestGetWithHeaders issues a GET request with the supplied extra headers,
+// allowing tests to simulate reverse-proxy forwarding (e.g. X-Forwarded-Proto).
+func testRestGetWithHeaders(
+	url string, headers map[string]string,
+) (*httptest.ResponseRecorder, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	// Pass request to handlers directly.
@@ -52,6 +77,13 @@ func testRestPatch(url string, body string) (*httptest.ResponseRecorder, error) 
 }
 
 func setupWebServer(mm message.Manager) *bytes.Buffer {
+	return setupWebServerBasePath(mm, "")
+}
+
+// setupWebServerBasePath wires up the REST routes and web server under the given
+// BasePath, mirroring how pkg/server/lifecycle.go mounts them in production so
+// generated links can be exercised for sub-path deployments.
+func setupWebServerBasePath(mm message.Manager, basePath string) *bytes.Buffer {
 	// Capture log output
 	buf := new(bytes.Buffer)
 	log.SetOutput(buf)
@@ -59,10 +91,12 @@ func setupWebServer(mm message.Manager) *bytes.Buffer {
 	// Have to reset default mux to prevent duplicate routes
 	cfg := &config.Root{
 		Web: config.Web{
-			UIDir: "../ui",
+			UIDir:    "../ui",
+			BasePath: basePath,
 		},
 	}
-	SetupRoutes(web.Router.PathPrefix("/api/").Subrouter())
+	prefix := stringutil.MakePathPrefixer(basePath)
+	SetupRoutes(web.Router.PathPrefix(prefix("/api/")).Subrouter())
 	web.NewServer(cfg, mm, &msghub.Hub{})
 
 	return buf
