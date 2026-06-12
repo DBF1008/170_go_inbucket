@@ -2,6 +2,7 @@ package test
 
 import (
 	"errors"
+	"sort"
 
 	"github.com/inbucket/inbucket/v3/pkg/config"
 	"github.com/inbucket/inbucket/v3/pkg/extension/event"
@@ -53,6 +54,41 @@ func (m *ManagerStub) GetMetadata(mailbox string) ([]*event.MessageMetadata, err
 		metas[i] = &msg.MessageMetadata
 	}
 	return metas, nil
+}
+
+// GetMailboxSummaries returns a summary of all active mailboxes, sorted by latest message date
+// descending.
+func (m *ManagerStub) GetMailboxSummaries() ([]message.MailboxSummary, error) {
+	summaries := make([]message.MailboxSummary, 0)
+	for name, messages := range m.mailboxes {
+		if len(messages) == 0 {
+			continue
+		}
+		total := len(messages)
+		unread := 0
+		var latest *event.MessageMetadata
+		var latestDate = messages[0].Date
+		for _, msg := range messages {
+			if !msg.Seen {
+				unread++
+			}
+			if latest == nil || msg.Date.After(latestDate) {
+				meta := msg.MessageMetadata
+				latest = &meta
+				latestDate = msg.Date
+			}
+		}
+		summaries = append(summaries, message.MailboxSummary{
+			Name:   name,
+			Total:  total,
+			Unread: unread,
+			Latest: latest,
+		})
+	}
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Latest.Date.After(summaries[j].Latest.Date)
+	})
+	return summaries, nil
 }
 
 // MailboxForAddress invokes policy.ParseMailboxName.

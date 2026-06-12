@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/mail"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +20,14 @@ import (
 // recvdTimeFmt to use in generated Received header.
 const recvdTimeFmt = "Mon, 02 Jan 2006 15:04:05 -0700 (MST)"
 
+// MailboxSummary holds an overview of a single mailbox's state.
+type MailboxSummary struct {
+	Name   string
+	Total  int
+	Unread int
+	Latest *event.MessageMetadata
+}
+
 // Manager is the interface controllers use to interact with messages.
 type Manager interface {
 	Deliver(
@@ -27,6 +36,7 @@ type Manager interface {
 		recvdHeader string,
 		content []byte,
 	) error
+	GetMailboxSummaries() ([]MailboxSummary, error)
 	GetMetadata(mailbox string) ([]*event.MessageMetadata, error)
 	GetMessage(mailbox, id string) (*Message, error)
 	MarkSeen(mailbox, id string) error
@@ -139,6 +149,51 @@ func (s *StoreManager) Deliver(
 	}
 
 	return nil
+}
+
+// GetMailboxSummaries returns a summary of all active mailboxes, sorted by latest message date
+// descending.
+func (s *StoreManager) GetMailboxSummaries() ([]MailboxSummary, error) {
+	summaries := make([]MailboxSummary, 0)
+	err := s.Store.VisitMailboxes(func(messages []storage.Message) bool {
+		if len(messages) == 0 {
+			return true
+		}
+		name := messages[0].Mailbox()
+		total := len(messages)
+		unread := 0
+		var latest storage.Message
+		var latestDate time.Time
+		for _, m := range messages {
+			if !m.Seen() {
+				unread++
+			}
+			if latest == nil || m.Date().After(latestDate) {
+				latest = m
+				latestDate = m.Date()
+			}
+		}
+		summary := MailboxSummary{
+			Name:   name,
+			Total:  total,
+			Unread: unread,
+		}
+		if latest != nil {
+			summary.Latest = MakeMetadata(latest)
+		}
+		summaries = append(summaries, summary)
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Sort by latest message date descending (most recent first).
+	sort.Slice(summaries, func(i, j int) bool {
+		di := summaries[i].Latest.Date
+		dj := summaries[j].Latest.Date
+		return di.After(dj)
+	})
+	return summaries, nil
 }
 
 // GetMetadata returns a slice of metadata for the specified mailbox.
