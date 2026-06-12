@@ -305,3 +305,83 @@ func TestRestMarkSeen(t *testing.T) {
 		_, _ = io.Copy(os.Stderr, logbuf)
 	}
 }
+
+func TestRestMarkSeenNotExist(t *testing.T) {
+	mm := test.NewManager()
+	logbuf := setupWebServer(mm)
+
+	// Marking a non-existent message as seen must return 404, not 200, so that
+	// automation gets a consistent result regardless of storage backend.
+	w, err := testRestPatch("http://localhost/api/v1/mailbox/empty/0001", `{"seen":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("PATCH missing message: expected code 404, got %v", w.Code)
+	}
+
+	// Repeating the request must remain 404.
+	w, err = testRestPatch("http://localhost/api/v1/mailbox/empty/0001", `{"seen":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("repeated PATCH missing message: expected code 404, got %v", w.Code)
+	}
+
+	if t.Failed() {
+		// Wait for handler to finish logging
+		time.Sleep(2 * time.Second)
+		// Dump buffered log data if there was a failure
+		_, _ = io.Copy(os.Stderr, logbuf)
+	}
+}
+
+func TestRestDelete(t *testing.T) {
+	mm := test.NewManager()
+	logbuf := setupWebServer(mm)
+
+	meta := event.MessageMetadata{
+		Mailbox: "good",
+		ID:      "0001",
+		From:    &mail.Address{Name: "", Address: "from1@host"},
+		To:      []*mail.Address{{Name: "", Address: "to1@host"}},
+		Subject: "subject 1",
+		Date:    time.Now(),
+	}
+	mm.AddMessage("good", &message.Message{MessageMetadata: meta})
+
+	// Deleting an existing message returns 200.
+	w, err := testRestDelete("http://localhost/api/v1/mailbox/good/0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 {
+		t.Errorf("DELETE existing message: expected code 200, got %v", w.Code)
+	}
+
+	// Deleting the now-missing message returns 404, matching a never-existing id.
+	w, err = testRestDelete("http://localhost/api/v1/mailbox/good/0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("repeated DELETE: expected code 404, got %v", w.Code)
+	}
+
+	// Deleting from an empty mailbox returns 404.
+	w, err = testRestDelete("http://localhost/api/v1/mailbox/empty/0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 404 {
+		t.Errorf("DELETE from empty mailbox: expected code 404, got %v", w.Code)
+	}
+
+	if t.Failed() {
+		// Wait for handler to finish logging
+		time.Sleep(2 * time.Second)
+		// Dump buffered log data if there was a failure
+		_, _ = io.Copy(os.Stderr, logbuf)
+	}
+}

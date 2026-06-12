@@ -45,6 +45,7 @@ func StoreSuite(t *testing.T, factory StoreFactory) {
 		{"size", testSize, config.Storage{}},
 		{"seen", testSeen, config.Storage{}},
 		{"delete", testDelete, config.Storage{}},
+		{"missing message", testMissingMessage, config.Storage{}},
 		{"purge", testPurge, config.Storage{}},
 		{"cap=10", testMsgCap, config.Storage{MailboxMsgCap: 10}},
 		{"cap=0", testNoMsgCap, config.Storage{MailboxMsgCap: 0}},
@@ -348,6 +349,60 @@ func testDelete(s storeSuite) {
 			s.Errorf("Got subject %q, want %q", got, want)
 		}
 	}
+}
+
+// testMissingMessage verifies that single-message operations report
+// storage.ErrNotExist consistently when the target message does not exist. It
+// exercises an empty mailbox, a message that has been deleted (re-read), and
+// repeated operations on an already-missing message, so that all backends behave
+// identically and callers (e.g. the REST API) can map the result to a stable
+// HTTP status.
+func testMissingMessage(s storeSuite) {
+	// Empty mailbox: nothing was ever delivered here.
+	const emptyBox = "nobody"
+	_, err := s.store.GetMessage(emptyBox, "1")
+	assert.ErrorIs(s, err, storage.ErrNotExist, "GetMessage on empty mailbox")
+	_, err = s.store.GetMessage(emptyBox, "latest")
+	assert.ErrorIs(s, err, storage.ErrNotExist, "GetMessage latest on empty mailbox")
+	assert.ErrorIs(s, s.store.MarkSeen(emptyBox, "1"), storage.ErrNotExist,
+		"MarkSeen on empty mailbox")
+	assert.ErrorIs(s, s.store.RemoveMessage(emptyBox, "1"), storage.ErrNotExist,
+		"RemoveMessage on empty mailbox")
+
+	// Deliver two messages; deleting one leaves the mailbox non-empty so we cover
+	// the "mailbox exists but id is gone" path.
+	const box = "deleter"
+	gone, _ := DeliverToStore(s.T, s.store, box, "delete me", time.Now())
+	keep, _ := DeliverToStore(s.T, s.store, box, "keep me", time.Now())
+	require.NoError(s, s.store.RemoveMessage(box, gone), "deleting an existing message")
+
+	// Re-reading and operating on the deleted message must report not-exist.
+	_, err = s.store.GetMessage(box, gone)
+	assert.ErrorIs(s, err, storage.ErrNotExist, "GetMessage after delete")
+	assert.ErrorIs(s, s.store.MarkSeen(box, gone), storage.ErrNotExist,
+		"MarkSeen after delete")
+
+	// Repeated operations on the now-missing message stay consistent.
+	assert.ErrorIs(s, s.store.RemoveMessage(box, gone), storage.ErrNotExist,
+		"repeated RemoveMessage after delete")
+	assert.ErrorIs(s, s.store.MarkSeen(box, gone), storage.ErrNotExist,
+		"repeated MarkSeen after delete")
+
+	// The surviving message must be unaffected and still operable.
+	survivor, err := s.store.GetMessage(box, keep)
+	require.NoError(s, err, "surviving message should still be retrievable")
+	assert.Equal(s, keep, survivor.ID(), "unexpected surviving message")
+	require.NoError(s, s.store.MarkSeen(box, keep), "MarkSeen on surviving message")
+
+	// Delete the last message, emptying the mailbox, then repeat operations to
+	// cover the file store's mailbox-directory-removed path.
+	require.NoError(s, s.store.RemoveMessage(box, keep), "deleting the last message")
+	_, err = s.store.GetMessage(box, keep)
+	assert.ErrorIs(s, err, storage.ErrNotExist, "GetMessage after mailbox emptied")
+	assert.ErrorIs(s, s.store.MarkSeen(box, keep), storage.ErrNotExist,
+		"MarkSeen after mailbox emptied")
+	assert.ErrorIs(s, s.store.RemoveMessage(box, keep), storage.ErrNotExist,
+		"repeated RemoveMessage after mailbox emptied")
 }
 
 // testPurge makes sure mailboxes can be purged.

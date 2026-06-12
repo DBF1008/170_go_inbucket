@@ -76,3 +76,19 @@ func (m *ManagerStub) MarkSeen(mailbox, id string) error {
 	}
 	return storage.ErrNotExist
 }
+
+// RemoveMessage deletes a message by ID from the specified mailbox. It returns
+// storage.ErrNotExist when the requested message does not exist.
+func (m *ManagerStub) RemoveMessage(mailbox, id string) error {
+	if mailbox == "messageerr" {
+		return errors.New("internal error")
+	}
+	msgs := m.mailboxes[mailbox]
+	for i, msg := range msgs {
+		if msg.ID == id {
+			m.mailboxes[mailbox] = append(msgs[:i], msgs[i+1:]...)
+			return nil
+		}
+	}
+	return storage.ErrNotExist
+}

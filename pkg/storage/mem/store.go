@@ -95,7 +95,8 @@ func (s *Store) AddMessage(message storage.Message) (id string, err error) {
 	return id, err
 }
 
-// GetMessage gets a mesage.
+// GetMessage gets a message. It returns storage.ErrNotExist when the requested
+// message does not exist.
 func (s *Store) GetMessage(mailbox, id string) (m storage.Message, err error) {
 	if id == "latest" {
 		ms, err := s.GetMessages(mailbox)
@@ -104,18 +105,22 @@ func (s *Store) GetMessage(mailbox, id string) (m storage.Message, err error) {
 		}
 		count := len(ms)
 		if count == 0 {
-			return nil, nil
+			return nil, storage.ErrNotExist
 		}
 		return ms[count-1], nil
 	}
+	var found bool
 	s.withMailbox(mailbox, false, func(mb *mbox) {
-		var ok bool
-		m, ok = mb.messages[id]
-		if !ok {
-			m = nil
+		// Avoid storing a typed nil *Message into the storage.Message interface.
+		if msg, ok := mb.messages[id]; ok {
+			m = msg
+			found = true
 		}
 	})
-	return m, err
+	if !found {
+		return nil, storage.ErrNotExist
+	}
+	return m, nil
 }
 
 // GetMessages gets a list of messages.
@@ -132,14 +137,19 @@ func (s *Store) GetMessages(mailbox string) (ms []storage.Message, err error) {
 	return ms, err
 }
 
-// MarkSeen marks a message as having been read.
+// MarkSeen marks a message as having been read. It returns storage.ErrNotExist
+// when the requested message does not exist.
 func (s *Store) MarkSeen(mailbox, id string) error {
+	var found bool
 	s.withMailbox(mailbox, true, func(mb *mbox) {
-		m := mb.messages[id]
-		if m != nil {
+		if m := mb.messages[id]; m != nil {
 			m.seen = true
+			found = true
 		}
 	})
+	if !found {
+		return storage.ErrNotExist
+	}
 	return nil
 }
 
@@ -185,12 +195,14 @@ func (s *Store) removeMessage(mailbox, id string) *Message {
 	return m
 }
 
-// RemoveMessage deletes a single message.
+// RemoveMessage deletes a single message. It returns storage.ErrNotExist when
+// the requested message does not exist.
 func (s *Store) RemoveMessage(mailbox, id string) error {
 	m := s.removeMessage(mailbox, id)
-	if m != nil {
-		s.enforcerRemove(m)
+	if m == nil {
+		return storage.ErrNotExist
 	}
+	s.enforcerRemove(m)
 	return nil
 }
 

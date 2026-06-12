@@ -161,7 +161,8 @@ func (fs *Store) GetMessages(mailbox string) ([]storage.Message, error) {
 	return mb.getMessages()
 }
 
-// MarkSeen flags the message as having been read.
+// MarkSeen flags the message as having been read. It returns storage.ErrNotExist
+// when the requested message does not exist.
 func (fs *Store) MarkSeen(mailbox, id string) error {
 	mb := fs.mbox(mailbox)
 	mb.Lock()
@@ -180,11 +181,11 @@ func (fs *Store) MarkSeen(mailbox, id string) error {
 				return nil
 			}
 			m.Fseen = true
-			break
+			return mb.writeIndex()
 		}
 	}
 
-	return mb.writeIndex()
+	return storage.ErrNotExist
 }
 
 // RemoveMessage deletes a message by ID from the specified mailbox.
