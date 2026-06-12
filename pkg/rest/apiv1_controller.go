@@ -10,26 +10,35 @@ import (
 	"encoding/json"
 	"strconv"
 
+	"github.com/inbucket/inbucket/v3/pkg/message"
 	"github.com/inbucket/inbucket/v3/pkg/rest/model"
 	"github.com/inbucket/inbucket/v3/pkg/server/web"
 	"github.com/inbucket/inbucket/v3/pkg/storage"
 	"github.com/inbucket/inbucket/v3/pkg/stringutil"
 )
 
-// MailboxListV1 renders a list of messages in a mailbox
+// MailboxListV1 renders a list of messages in a mailbox. The optional seen, subject, address,
+// start, and limit query parameters filter and paginate the results; the number of messages
+// matching the filters (before pagination) is reported in the X-Total-Count response header.
 func MailboxListV1(w http.ResponseWriter, req *http.Request, ctx *web.Context) (err error) {
 	// Don't have to validate these aren't empty, Gorilla returns 404
 	name, err := ctx.Manager.MailboxForAddress(ctx.Vars["name"])
 	if err != nil {
 		return err
 	}
+	sel, err := parseMessageSelection(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return nil
+	}
 	messages, err := ctx.Manager.GetMetadata(name)
 	if err != nil {
 		// This doesn't indicate empty, likely an IO error
 		return fmt.Errorf("failed to get messages for %v: %v", name, err)
 	}
-	jmessages := make([]*model.JSONMessageHeaderV1, len(messages))
-	for i, msg := range messages {
+	page, total := sel.Apply(messages)
+	jmessages := make([]*model.JSONMessageHeaderV1, len(page))
+	for i, msg := range page {
 		jmessages[i] = &model.JSONMessageHeaderV1{
 			Mailbox:     name,
 			ID:          msg.ID,
@@ -42,7 +51,40 @@ func MailboxListV1(w http.ResponseWriter, req *http.Request, ctx *web.Context) (
 			Seen:        msg.Seen,
 		}
 	}
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	return web.RenderJSON(w, jmessages)
+}
+
+// parseMessageSelection builds a message.MessageSelection from the request's query parameters,
+// returning an error if any parameter is malformed.
+func parseMessageSelection(req *http.Request) (message.MessageSelection, error) {
+	q := req.URL.Query()
+	sel := message.MessageSelection{
+		Subject: q.Get("subject"),
+		Address: q.Get("address"),
+	}
+	if v := q.Get("start"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return sel, fmt.Errorf("invalid 'start' parameter: %q", v)
+		}
+		sel.Start = n
+	}
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return sel, fmt.Errorf("invalid 'limit' parameter: %q", v)
+		}
+		sel.Limit = n
+	}
+	if v := q.Get("seen"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return sel, fmt.Errorf("invalid 'seen' parameter: %q", v)
+		}
+		sel.Seen = &b
+	}
+	return sel, nil
 }
 
 // MailboxShowV1 renders a particular message from a mailbox
