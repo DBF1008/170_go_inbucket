@@ -2,6 +2,8 @@ package test
 
 import (
 	"errors"
+	"io"
+	"strings"
 
 	"github.com/inbucket/inbucket/v3/pkg/config"
 	"github.com/inbucket/inbucket/v3/pkg/extension/event"
@@ -75,4 +77,41 @@ func (m *ManagerStub) MarkSeen(mailbox, id string) error {
 		}
 	}
 	return storage.ErrNotExist
+}
+
+// RemoveMessage deletes the specified message from the mailbox.
+func (m *ManagerStub) RemoveMessage(mailbox, id string) error {
+	if mailbox == "messageerr" {
+		return errors.New("internal error")
+	}
+	messages := m.mailboxes[mailbox]
+	for i, msg := range messages {
+		if msg.ID == id {
+			m.mailboxes[mailbox] = append(messages[:i], messages[i+1:]...)
+			return nil
+		}
+	}
+	return storage.ErrNotExist
+}
+
+// PurgeMessages removes all messages from the specified mailbox.
+func (m *ManagerStub) PurgeMessages(mailbox string) error {
+	if mailbox == "messageerr" {
+		return errors.New("internal error")
+	}
+	delete(m.mailboxes, mailbox)
+	return nil
+}
+
+// SourceReader returns a reader over a synthesized raw source for the message.
+func (m *ManagerStub) SourceReader(mailbox, id string) (io.ReadCloser, error) {
+	if mailbox == "messageerr" {
+		return nil, errors.New("internal error")
+	}
+	for _, msg := range m.mailboxes[mailbox] {
+		if msg.ID == id {
+			return io.NopCloser(strings.NewReader("Subject: " + msg.Subject + "\r\n")), nil
+		}
+	}
+	return nil, storage.ErrNotExist
 }
